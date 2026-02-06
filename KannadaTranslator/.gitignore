@@ -1,0 +1,5 @@
+data/app.db
+data/secret_key.txt
+data/jobs/
+__pycache__/
+*.pyc

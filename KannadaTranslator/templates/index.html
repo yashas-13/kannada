@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kannada Translator</title>
+    <!-- Bootstrap 5 CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #f8f9fa;
+            --card-bg: #ffffff;
+            --text: #212529;
+            --muted: #6c757d;
+            --accent: #0d6efd;
+            --result-bg: #e9ecef;
+            --nav-bg: #ffffff;
+        }
+        [data-theme="dark"] {
+            --bg: #0b0e12;
+            --card-bg: #121621;
+            --text: #e9ecef;
+            --muted: #9aa4b2;
+            --accent: #4ea8ff;
+            --result-bg: #202632;
+            --nav-bg: #1a1f2e;
+        }
+        body { background-color: var(--bg); color: var(--text); transition: background-color 0.3s, color 0.3s; }
+        .navbar { background-color: var(--nav-bg); border-bottom: 1px solid rgba(0,0,0,0.1); }
+        .chat-container {
+            max-width: 900px;
+            margin: 20px auto;
+            background: var(--card-bg);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .result-box {
+            background-color: var(--result-bg);
+            border-radius: 10px;
+            padding: 20px;
+            min-height: 100px;
+            white-space: pre-wrap;
+            position: relative;
+        }
+        .loading {
+            display: none;
+        }
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .theme-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .response-controls {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .usage-bar { height: 8px; border-radius: 4px; }
+        .toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 1055; }
+        .nav-link.active { font-weight: bold; }
+        .btn-upgrade {
+            background: linear-gradient(45deg, #f093fb 0%, #f5576c 100%);
+            border: none;
+            color: white;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg sticky-top">
+    <div class="container">
+        <a class="navbar-brand text-primary fw-bold" href="/">Kannada Translator</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#pricingModal">Pricing</a>
+                </li>
+            </ul>
+            <div class="d-flex align-items-center gap-3">
+                <button class="btn btn-outline-secondary btn-sm" id="toggleThemeBtn">🌓</button>
+                {% if g.user %}
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                        {{ g.user.email }}
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end p-3" style="min-width: 250px;">
+                        <li><h6 class="dropdown-header px-0">Current Plan: <span class="badge bg-info text-dark">{{ g.user.plan_name|upper }}</span></h6></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li id="usageSection">
+                            <div class="mb-2">
+                                <div class="d-flex justify-content-between small mb-1">
+                                    <span>Characters</span>
+                                    <span id="charUsageText">...</span>
+                                </div>
+                                <div class="progress usage-bar">
+                                    <div id="charUsageBar" class="progress-bar bg-primary" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between small mb-1">
+                                    <span>YouTube Min</span>
+                                    <span id="ytUsageText">...</span>
+                                </div>
+                                <div class="progress usage-bar">
+                                    <div id="ytUsageBar" class="progress-bar bg-success" style="width: 0%"></div>
+                                </div>
+                            </div>
+                        </li>
+                        {% if g.user.is_admin %}
+                        <li><a class="dropdown-item" href="/admin">Admin Panel</a></li>
+                        {% endif %}
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item text-danger" href="/logout">Logout</a></li>
+                    </ul>
+                </div>
+                {% else %}
+                <a href="/login" class="btn btn-sm btn-outline-primary">Login</a>
+                <a href="/register" class="btn btn-sm btn-primary">Register</a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</nav>
+
+<div class="container">
+    <div class="chat-container">
+        <div class="topbar d-none"> <!-- Hidden as navbar exists -->
+            <h2 class="mb-0 text-primary">Kannada Translator</h2>
+            <div class="theme-toggle">
+                <button class="btn btn-outline-secondary btn-sm" id="toggleThemeBtnLegacy">Toggle Theme</button>
+            </div>
+        </div>
+        <div class="text-muted mb-2">
+            <small id="poweredBy">Powered by</small>
+        </div>
+        <div class="alert alert-info py-2 d-none" id="systemStatusBanner" role="alert"></div>
+
+        <div class="mb-3">
+            <div class="d-flex justify-content-between align-items-end">
+                <div class="flex-grow-1 me-2">
+                    <label for="modelSelect" class="form-label">Model</label>
+                    <select class="form-select" id="modelSelect"></select>
+                </div>
+                <div style="min-width:160px;">
+                    <label for="backendSelect" class="form-label">Backend</label>
+                    <select class="form-select" id="backendSelect">
+                        <option value="auto" selected>Auto</option>
+                        <option value="lmstudio">LM Studio</option>
+                        <option value="ollama">Ollama</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-text">Models are loaded from the selected backend.</div>
+        </div>
+
+        <ul class="nav nav-tabs mb-3" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="text-tab" data-bs-toggle="tab" data-bs-target="#text-pane" type="button" role="tab">Text</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="youtube-tab" data-bs-toggle="tab" data-bs-target="#youtube-pane" type="button" role="tab">YouTube</button>
+            </li>
+        </ul>
+
+        <div class="tab-content">
+            <div class="tab-pane fade show active" id="text-pane" role="tabpanel" aria-labelledby="text-tab">
+                <div class="mb-3">
+                    <label for="inputText" class="form-label">Input Text</label>
+                    <textarea class="form-control" id="inputText" rows="4" placeholder="Type something here..."></textarea>
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label d-block">Mode</label>
+                    <div class="btn-group w-100" role="group" aria-label="Mode selection">
+                        <input type="radio" class="btn-check" name="mode" id="modeChat" value="chat" checked>
+                        <label class="btn btn-outline-primary" for="modeChat">Chat / General</label>
+
+                        <input type="radio" class="btn-check" name="mode" id="modeEnKn" value="to_kannada">
+                        <label class="btn btn-outline-primary" for="modeEnKn">English &rarr; Kannada</label>
+
+                        <input type="radio" class="btn-check" name="mode" id="modeKnEn" value="to_english">
+                        <label class="btn btn-outline-primary" for="modeKnEn">Kannada &rarr; English</label>
+                    </div>
+                </div>
+
+                <div class="d-grid gap-2 mb-4">
+                    <button class="btn btn-primary btn-lg" type="button" onclick="sendRequest()" id="submitBtn">
+                        <span class="spinner-border spinner-border-sm loading" id="spinner" role="status" aria-hidden="true"></span>
+                        <span id="btnText">Submit</span>
+                    </button>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Response</label>
+                    <div class="result-box" id="resultBox">
+                        <span class="text-muted">Result will appear here...</span>
+                    </div>
+                    <div class="mt-2 d-flex justify-content-between align-items-center">
+                        <div class="response-controls">
+                            <button class="btn btn-sm btn-outline-secondary" id="copyBtn">Copy</button>
+                            <button class="btn btn-sm btn-outline-secondary" id="clearBtn">Clear</button>
+                            <button class="btn btn-sm btn-outline-secondary d-none" id="downloadAudioBtn">Download Audio</button>
+                        </div>
+                        <div>
+                            <button class="btn btn-sm btn-secondary d-none" id="playAudioBtn">
+                                🔊 Play Audio (Kannada)
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="youtube-pane" role="tabpanel" aria-labelledby="youtube-tab">
+                <div class="mb-3">
+                    <label for="youtubeUrl" class="form-label">YouTube URL (English video)</label>
+                    <input class="form-control" id="youtubeUrl" placeholder="https://www.youtube.com/watch?v=...">
+                </div>
+
+                <div class="d-grid gap-2 mb-3">
+                    <button class="btn btn-success btn-lg" type="button" onclick="startYoutubeJob()" id="ytBtn">
+                        <span class="spinner-border spinner-border-sm loading" id="ytSpinner" role="status" aria-hidden="true"></span>
+                        <span id="ytBtnText">Download + Transcribe + Translate</span>
+                    </button>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Status</label>
+                    <div class="result-box" id="ytStatusBox">
+                        <span class="text-muted">Job status will appear here...</span>
+                    </div>
+                    <div class="progress mt-2">
+                        <div id="ytProgress" class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                </div>
+
+                <div class="mb-3 d-none" id="ytDownloads">
+                    <label class="form-label">Downloads</label>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <a class="btn btn-outline-primary" id="dlVideo" href="#" target="_blank">Download Video</a>
+                        <a class="btn btn-outline-secondary" id="dlEn" href="#" target="_blank">English Transcript</a>
+                        <a class="btn btn-outline-success" id="dlKn" href="#" target="_blank">Kannada Transcript</a>
+                    </div>
+                </div>
+                
+                <div class="mb-3 d-none" id="ytPlayerBox">
+                    <label class="form-label">Preview</label>
+                    <video id="ytPlayer" controls style="width:100%; border-radius:10px; background-color:#000;"></video>
+                    <div class="mt-2">
+                        <a class="btn btn-sm btn-outline-primary" id="ytPlayerDownload" href="#" download>Save Video</a>
+                    </div>
+                </div>
+                
+                <div class="mb-3 d-none" id="ytCuesBox">
+                    <label class="form-label">Bilingual Subtitles (Kannada + English)</label>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover align-middle">
+                            <thead>
+                                <tr>
+                                    <th style="width:120px;">Time</th>
+                                    <th>English</th>
+                                    <th>Kannada + English (80/20)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ytCuesTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="errorAlert" class="alert alert-danger d-none" role="alert"></div>
+    </div>
+</div>
+
+<!-- Pricing Modal -->
+<div class="modal fade" id="pricingModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content" style="background: var(--card-bg); color: var(--text);">
+            <div class="modal-header border-0">
+                <h5 class="modal-title fw-bold">Upgrade Your Experience</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-4" id="plansContainer">
+                    <div class="col-md-4">
+                        <div class="card h-100 border-0 shadow-sm" style="background: var(--result-bg);">
+                            <div class="card-body text-center d-flex flex-column">
+                                <h4 class="fw-bold mb-3">Free</h4>
+                                <h2 class="fw-bold mb-4">$0<small class="text-muted" style="font-size: 0.5em">/mo</small></h2>
+                                <ul class="list-unstyled mb-auto text-start">
+                                    <li class="mb-2">✅ 20,000 Characters</li>
+                                    <li class="mb-2">✅ 30 YouTube Min</li>
+                                    <li class="mb-2">✅ Basic LLM Models</li>
+                                </ul>
+                                <button class="btn btn-outline-primary mt-4" disabled>Current Plan</button>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Pro and Business plans will be dynamically updated or fixed here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container">
+    <div id="liveToast" class="toast hide" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="toast-header">
+            <strong class="me-auto" id="toastTitle">Notification</strong>
+            <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+        </div>
+        <div class="toast-body" id="toastMessage"></div>
+    </div>
+</div>
+
+<script>
+    let currentYoutubeJobId = null;
+    let youtubePollTimer = null;
+    let lastAudioBlob = null;
+    let lastAudioUrl = null;
+
+    // Theme persistence
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    document.body.setAttribute('data-theme', savedTheme);
+
+    function showToast(message, title = 'Notification') {
+        document.getElementById('toastTitle').textContent = title;
+        document.getElementById('toastMessage').textContent = message;
+        const toastEl = document.getElementById('liveToast');
+        const toast = new bootstrap.Toast(toastEl);
+        toast.show();
+    }
+
+    async function updateUsage() {
+        try {
+            const res = await fetch('/api/user/usage');
+            if (!res.ok) return;
+            const data = await res.json();
+            
+            const charPct = data.chars_limit ? Math.min(100, (data.chars_used / data.chars_limit) * 100) : 0;
+            const ytPct = data.youtube_minutes_limit ? Math.min(100, (data.youtube_minutes_used / data.youtube_minutes_limit) * 100) : 0;
+            
+            document.getElementById('charUsageBar').style.width = charPct + '%';
+            document.getElementById('charUsageText').textContent = `${data.chars_used.toLocaleString()} / ${data.chars_limit ? data.chars_limit.toLocaleString() : '∞'}`;
+            
+            document.getElementById('ytUsageBar').style.width = ytPct + '%';
+            document.getElementById('ytUsageText').textContent = `${data.youtube_minutes_used} / ${data.youtube_minutes_limit || '∞'} min`;
+        } catch (e) {}
+    }
+
+    async function loadPlans() {
+        try {
+            const [plansRes, subRes] = await Promise.all([
+                fetch('/api/plans'),
+                fetch('/api/subscription')
+            ]);
+            const plans = await plansRes.json();
+            const subscription = await subRes.json();
+            const container = document.getElementById('plansContainer');
+            container.innerHTML = '';
+            
+            plans.forEach(plan => {
+                const isCurrent = plan.name === subscription.plan_name;
+                const features = Array.isArray(plan.features) ? plan.features : [];
+                const col = document.createElement('div');
+                col.className = 'col-md-4';
+                col.innerHTML = `
+                    <div class="card h-100 border-0 shadow-sm ${plan.name === 'pro' ? 'border border-primary' : ''}" style="background: var(--result-bg);">
+                        <div class="card-body text-center d-flex flex-column">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h4 class="fw-bold mb-2">${plan.name.charAt(0).toUpperCase() + plan.name.slice(1)}</h4>
+                                ${isCurrent ? '<span class="badge bg-success">Current</span>' : ''}
+                            </div>
+                            <p class="text-muted mb-3">${plan.summary || ''}</p>
+                            <h2 class="fw-bold mb-4">$${(plan.price_cents / 100).toFixed(2)}<small class="text-muted" style="font-size: 0.5em">/mo</small></h2>
+                            <ul class="list-unstyled mb-auto text-start">
+                                ${features.map(f => `<li class="mb-2">✅ ${f}</li>`).join('')}
+                            </ul>
+                            <button class="btn ${isCurrent ? 'btn-outline-secondary' : 'btn-upgrade'} mt-4" ${isCurrent ? 'disabled' : ''} onclick="subscribe('${plan.name}')">
+                                ${isCurrent ? 'Selected' : 'Upgrade Now'}
+                            </button>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(col);
+            });
+        } catch (e) {}
+    }
+
+    async function loadSystemStatus() {
+        // WHY: surface local-only system state to users; WHAT: COMM-002; HOW: remove banner + API call to revert.
+        try {
+            const res = await fetch('/api/system/status');
+            const data = await res.json();
+            const banner = document.getElementById('systemStatusBanner');
+            if (!res.ok) throw new Error(data.error || 'Failed to load system status');
+            const ttsStatus = data.tts_available ? 'TTS ready' : 'TTS unavailable (local cache missing)';
+            const localOnly = data.local_only_mode ? 'Local-only mode enabled' : 'Local-only mode disabled';
+            banner.textContent = `${localOnly} • ${ttsStatus}`;
+            banner.classList.remove('d-none');
+        } catch (e) {}
+    }
+
+    async function subscribe(planName) {
+        // WHY: enable paid plan selection from the UI; WHAT: COMM-001; HOW: remove API call to revert to static pricing.
+        try {
+            const response = await fetch('/api/subscribe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ plan_name: planName })
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Subscription failed');
+            }
+            showToast(`Plan updated to ${data.plan_name}.`, 'Subscription');
+            loadPlans();
+        } catch (e) {
+            showToast(e.message || 'Subscription error', 'Subscription');
+        }
+    }
+
+    async function loadModels(backend='auto') {
+        const select = document.getElementById('modelSelect');
+        select.innerHTML = '';
+        try {
+            const q = backend && backend !== 'auto' ? `?backend=${backend}` : '';
+            const res = await fetch('/api/models' + q);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to load models');
+
+            const models = data.models || [];
+            const preferred = ['google/gemma-3-4b', 'google/gemma-3-4b:2', 'gemma-kannada-instruct'];
+            let defaultModel = data.default || (models.length ? models[0] : '');
+            for (const p of preferred) {
+                if (models.includes(p)) {
+                    defaultModel = p;
+                    break;
+                }
+            }
+
+            for (const m of models) {
+                const opt = document.createElement('option');
+                opt.value = m;
+                opt.textContent = m;
+                if (m === defaultModel) opt.selected = true;
+                select.appendChild(opt);
+            }
+
+            if (!models.length) {
+                const opt = document.createElement('option');
+                opt.value = '';
+                opt.textContent = 'No models found in LM Studio';
+                select.appendChild(opt);
+            }
+            const poweredBy = document.getElementById('poweredBy');
+            const be = (data.backend || '').toUpperCase();
+            poweredBy.textContent = `Powered by ${be}${defaultModel ? ' • ' + defaultModel : ''}`;
+        } catch (e) {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = `Model load error: ${e.message || e}`;
+            select.appendChild(opt);
+        }
+    }
+
+    async function sendRequest() {
+        const inputText = document.getElementById('inputText').value;
+        const mode = document.querySelector('input[name="mode"]:checked').value;
+        const model = document.getElementById('modelSelect').value;
+        const resultBox = document.getElementById('resultBox');
+        const spinner = document.getElementById('spinner');
+        const btnText = document.getElementById('btnText');
+        const errorAlert = document.getElementById('errorAlert');
+        const submitBtn = document.getElementById('submitBtn');
+        const playAudioBtn = document.getElementById('playAudioBtn');
+        const downloadAudioBtn = document.getElementById('downloadAudioBtn');
+
+        if (!inputText.trim()) {
+            alert("Please enter some text.");
+            return;
+        }
+
+        spinner.style.display = 'inline-block';
+        btnText.innerText = 'Processing...';
+        submitBtn.disabled = true;
+        playAudioBtn.classList.add('d-none');
+        downloadAudioBtn.classList.add('d-none');
+        lastAudioBlob = null;
+        if (lastAudioUrl) {
+            URL.revokeObjectURL(lastAudioUrl);
+            lastAudioUrl = null;
+        }
+        errorAlert.classList.add('d-none');
+        resultBox.innerHTML = '<span class="text-muted">Thinking...</span>';
+
+        try {
+            const response = await fetch('/generate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    input_text: inputText,
+                    mode: mode,
+                    model: model
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                resultBox.innerText = data.response;
+                playAudioBtn.classList.remove('d-none');
+                downloadAudioBtn.classList.remove('d-none');
+            } else {
+                resultBox.innerText = '';
+                errorAlert.innerText = data.error || "An error occurred.";
+                errorAlert.classList.remove('d-none');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            resultBox.innerText = '';
+            errorAlert.innerText = "Network Error: Could not connect to backend.";
+            errorAlert.classList.remove('d-none');
+        } finally {
+            spinner.style.display = 'none';
+            btnText.innerText = 'Submit';
+            submitBtn.disabled = false;
+        }
+    }
+
+    async function playAudio() {
+        const text = document.getElementById('resultBox').innerText;
+        const playBtn = document.getElementById('playAudioBtn');
+        const downloadAudioBtn = document.getElementById('downloadAudioBtn');
+        
+        if (!text) return;
+        
+        const originalText = playBtn.innerText;
+        playBtn.innerText = "⏳ Generating...";
+        playBtn.disabled = true;
+
+        try {
+            const response = await fetch('/tts', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ text: text })
+            });
+
+            if (response.ok) {
+                lastAudioBlob = await response.blob();
+                if (lastAudioUrl) URL.revokeObjectURL(lastAudioUrl);
+                lastAudioUrl = URL.createObjectURL(lastAudioBlob);
+                const audio = new Audio(lastAudioUrl);
+                audio.play();
+                downloadAudioBtn.classList.remove('d-none');
+            } else {
+                alert("Failed to generate audio.");
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Error playing audio.");
+        } finally {
+            playBtn.innerText = originalText;
+            playBtn.disabled = false;
+        }
+    }
+    async function downloadAudio() {
+        const text = document.getElementById('resultBox').innerText;
+        if (!text) return;
+        try {
+            if (!lastAudioBlob) {
+                const response = await fetch('/tts', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ text })
+                });
+                if (!response.ok) return;
+                lastAudioBlob = await response.blob();
+            }
+            if (lastAudioUrl) URL.revokeObjectURL(lastAudioUrl);
+            lastAudioUrl = URL.createObjectURL(lastAudioBlob);
+            const a = document.createElement('a');
+            a.href = lastAudioUrl;
+            a.download = 'kannada.wav';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        } catch (e) {
+        }
+    }
+    function copyResponse() {
+        const text = document.getElementById('resultBox').innerText;
+        if (!text) return;
+        navigator.clipboard.writeText(text);
+    }
+    function clearResponse() {
+        const resultBox = document.getElementById('resultBox');
+        const playAudioBtn = document.getElementById('playAudioBtn');
+        const downloadAudioBtn = document.getElementById('downloadAudioBtn');
+        resultBox.innerHTML = '<span class="text-muted">Result will appear here...</span>';
+        playAudioBtn.classList.add('d-none');
+        downloadAudioBtn.classList.add('d-none');
+        if (lastAudioUrl) URL.revokeObjectURL(lastAudioUrl);
+        lastAudioUrl = null;
+        lastAudioBlob = null;
+    }
+
+    async function startYoutubeJob() {
+        const url = document.getElementById('youtubeUrl').value;
+        const model = document.getElementById('modelSelect').value;
+        const ytStatusBox = document.getElementById('ytStatusBox');
+        const ytSpinner = document.getElementById('ytSpinner');
+        const ytBtnText = document.getElementById('ytBtnText');
+        const ytBtn = document.getElementById('ytBtn');
+        const ytDownloads = document.getElementById('ytDownloads');
+        const ytProgress = document.getElementById('ytProgress');
+
+        if (!url.trim()) {
+            alert("Please enter a YouTube URL.");
+            return;
+        }
+
+        ytDownloads.classList.add('d-none');
+        ytSpinner.style.display = 'inline-block';
+        ytBtnText.innerText = 'Starting...';
+        ytBtn.disabled = true;
+        ytStatusBox.innerHTML = '<span class="text-muted">Queued...</span>';
+        ytProgress.style.width = '5%';
+        ytProgress.setAttribute('aria-valuenow', '5');
+        ytProgress.className = 'progress-bar';
+
+        try {
+            const response = await fetch('/api/youtube/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url, model })
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to start job');
+            }
+
+            currentYoutubeJobId = data.job_id;
+            ytBtnText.innerText = 'Running...';
+            pollYoutubeJob();
+        } catch (e) {
+            ytStatusBox.innerText = e.message || String(e);
+            ytBtn.disabled = false;
+            ytSpinner.style.display = 'none';
+            ytBtnText.innerText = 'Download + Transcribe + Translate';
+            ytProgress.style.width = '0%';
+            ytProgress.setAttribute('aria-valuenow', '0');
+        }
+    }
+
+    async function pollYoutubeJob() {
+        const ytStatusBox = document.getElementById('ytStatusBox');
+        const ytSpinner = document.getElementById('ytSpinner');
+        const ytBtnText = document.getElementById('ytBtnText');
+        const ytBtn = document.getElementById('ytBtn');
+        const ytDownloads = document.getElementById('ytDownloads');
+        const dlVideo = document.getElementById('dlVideo');
+        const dlEn = document.getElementById('dlEn');
+        const dlKn = document.getElementById('dlKn');
+        const ytProgress = document.getElementById('ytProgress');
+        const ytPlayerBox = document.getElementById('ytPlayerBox');
+        const ytPlayer = document.getElementById('ytPlayer');
+        const ytPlayerDownload = document.getElementById('ytPlayerDownload');
+        const ytCuesBox = document.getElementById('ytCuesBox');
+        const ytCuesTableBody = document.getElementById('ytCuesTableBody');
+        const model = document.getElementById('modelSelect').value;
+
+        if (!currentYoutubeJobId) return;
+
+        try {
+            const response = await fetch(`/api/youtube/status/${currentYoutubeJobId}`);
+            const data = await response.json();
+            if (!response.ok) {
+                if (response.status === 404) {
+                    ytStatusBox.innerText = `Job not found (server restarted). Start again.`;
+                    ytSpinner.style.display = 'none';
+                    ytBtnText.innerText = 'Download + Transcribe + Translate';
+                    ytBtn.disabled = false;
+                    currentYoutubeJobId = null;
+                    ytProgress.style.width = '0%';
+                    ytProgress.setAttribute('aria-valuenow', '0');
+                    return;
+                }
+                throw new Error(data.error || 'Failed to get job status');
+            }
+
+            if (data.status === 'error') {
+                ytStatusBox.innerText = `Error: ${data.error || 'Unknown error'}`;
+                ytSpinner.style.display = 'none';
+                ytBtnText.innerText = 'Download + Transcribe + Translate';
+                ytBtn.disabled = false;
+                ytProgress.className = 'progress-bar bg-danger';
+                ytProgress.style.width = '100%';
+                ytProgress.setAttribute('aria-valuenow', '100');
+                return;
+            }
+
+            ytStatusBox.innerText = `Status: ${data.status}`;
+            const statusMap = {
+                queued: 5,
+                downloading_video: 25,
+                fetching_transcript: 45,
+                fetching_transcript_api: 50,
+                extracting_audio: 55,
+                transcribing_audio: 75,
+                translating_to_kannada: 90,
+                completed: 100
+            };
+            const pct = statusMap[data.status] ?? 10;
+            ytProgress.className = 'progress-bar';
+            ytProgress.style.width = pct + '%';
+            ytProgress.setAttribute('aria-valuenow', String(pct));
+
+            if (data.video_ready) {
+                const streamUrl = `/stream/${currentYoutubeJobId}/video`;
+                const downloadUrl = `/download/${currentYoutubeJobId}/video`;
+                if (ytPlayer.src !== streamUrl) {
+                    ytPlayer.src = streamUrl;
+                }
+                ytPlayerBox.classList.remove('d-none');
+                ytPlayerDownload.href = downloadUrl;
+            }
+            if (data.subtitles_ready) {
+                const existingTracks = ytPlayer.querySelectorAll('track[data-job-id]');
+                let hasTrack = false;
+                existingTracks.forEach(t => {
+                    if (t.getAttribute('data-job-id') === currentYoutubeJobId) hasTrack = true;
+                });
+                if (!hasTrack) {
+                    const track = document.createElement('track');
+                    track.kind = 'subtitles';
+                    track.srclang = 'en';
+                    track.label = 'English';
+                    track.src = `/stream/${currentYoutubeJobId}/subtitles`;
+                    track.default = true;
+                    track.setAttribute('data-job-id', currentYoutubeJobId);
+                    ytPlayer.appendChild(track);
+                }
+            }
+            if (data.subtitles_ready && !data.subtitles_bilingual_ready) {
+                try {
+                    const genRes = await fetch(`/api/youtube/cues/${currentYoutubeJobId}?model=${encodeURIComponent(model)}`);
+                    if (genRes.ok) {
+                        const genData = await genRes.json();
+                        if (genData && genData.cues) {
+                            ytCuesTableBody.innerHTML = '';
+                            for (const c of genData.cues) {
+                                const tr = document.createElement('tr');
+                                const tdTime = document.createElement('td');
+                                tdTime.textContent = `${c.start} → ${c.end}`;
+                                const tdEn = document.createElement('td');
+                                tdEn.textContent = c.text_en || '';
+                                const tdKn = document.createElement('td');
+                                tdKn.textContent = c.text_kn_mix || '';
+                                tr.appendChild(tdTime);
+                                tr.appendChild(tdEn);
+                                tr.appendChild(tdKn);
+                                ytCuesTableBody.appendChild(tr);
+                            }
+                            ytCuesBox.classList.remove('d-none');
+                        }
+                    }
+                } catch {}
+            }
+            if (data.subtitles_bilingual_ready) {
+                const existingMix = ytPlayer.querySelector('track[data-job-id-mix]');
+                if (!existingMix) {
+                    const mix = document.createElement('track');
+                    mix.kind = 'subtitles';
+                    mix.srclang = 'kn';
+                    mix.label = 'Kannada + English (80/20)';
+                    mix.src = `/stream/${currentYoutubeJobId}/subtitles_bilingual`;
+                    mix.setAttribute('data-job-id-mix', currentYoutubeJobId);
+                    ytPlayer.appendChild(mix);
+                }
+                try {
+                    const genRes = await fetch(`/api/youtube/cues/${currentYoutubeJobId}?model=${encodeURIComponent(model)}`);
+                    if (genRes.ok) {
+                        const genData = await genRes.json();
+                        if (genData && genData.cues) {
+                            ytCuesTableBody.innerHTML = '';
+                            for (const c of genData.cues) {
+                                const tr = document.createElement('tr');
+                                const tdTime = document.createElement('td');
+                                tdTime.textContent = `${c.start} → ${c.end}`;
+                                const tdEn = document.createElement('td');
+                                tdEn.textContent = c.text_en || '';
+                                const tdKn = document.createElement('td');
+                                tdKn.textContent = c.text_kn_mix || '';
+                                tr.appendChild(tdTime);
+                                tr.appendChild(tdEn);
+                                tr.appendChild(tdKn);
+                                ytCuesTableBody.appendChild(tr);
+                            }
+                            ytCuesBox.classList.remove('d-none');
+                        }
+                    }
+                } catch {}
+            }
+
+            if (data.status === 'completed') {
+                dlVideo.href = `/download/${currentYoutubeJobId}/video`;
+                dlEn.href = `/download/${currentYoutubeJobId}/transcript_en`;
+                dlKn.href = `/download/${currentYoutubeJobId}/transcript_kn`;
+                ytDownloads.classList.remove('d-none');
+                ytSpinner.style.display = 'none';
+                ytBtnText.innerText = 'Done';
+                ytBtn.disabled = false;
+                return;
+            }
+        } catch (e) {
+            ytStatusBox.innerText = e.message || String(e);
+        }
+
+        if (youtubePollTimer) clearTimeout(youtubePollTimer);
+        youtubePollTimer = setTimeout(pollYoutubeJob, 2000);
+    }
+
+    document.getElementById('toggleThemeBtn').addEventListener('click', () => {
+        const cur = document.body.getAttribute('data-theme');
+        const next = cur === 'dark' ? 'light' : 'dark';
+        document.body.setAttribute('data-theme', next);
+        localStorage.setItem('theme', next);
+    });
+    document.getElementById('backendSelect').addEventListener('change', (e) => {
+        loadModels(e.target.value);
+    });
+    document.getElementById('copyBtn').addEventListener('click', () => {
+        copyResponse();
+        showToast('Text copied to clipboard!');
+    });
+    document.getElementById('clearBtn').addEventListener('click', clearResponse);
+    document.getElementById('playAudioBtn').addEventListener('click', playAudio);
+    document.getElementById('downloadAudioBtn').addEventListener('click', downloadAudio);
+
+    // Initialize
+    loadModels();
+    loadPlans();
+    loadSystemStatus();
+    {% if g.user %}
+    updateUsage();
+    setInterval(updateUsage, 30000); // Update usage every 30s
+    {% endif %}
+</script>
+
+<!-- Bootstrap JS (Optional) -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
