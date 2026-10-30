@@ -1,0 +1,11 @@
+torch
+transformers
+sentencepiece
+sacremoses
+protobuf
+flask
+requests
+scipy
+soundfile
+yt-dlp
+youtube-transcript-api>=0.6.0
